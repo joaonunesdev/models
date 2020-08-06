@@ -65,6 +65,16 @@ MODEL_BUILD_UTIL_MAP = {
     'detection_model_fn_base': model_builder.build,
 }
 
+class BestExporter(tf.estimator.BestExporter):
+  def export(self, estimator, export_path, checkpoint_path, eval_result, is_the_final_export):
+    if self._best_eval_result is None or self._compare_fn(self._best_eval_result, eval_result):
+      tf.logging.info('Ambassador is exporting a better model ({} instead of {})...'.format(eval_result, self._best_eval_result))
+      result = self._saved_model_exporter.export( estimator, export_path, checkpoint_path, eval_result, is_the_final_export)
+      self._best_eval_result = eval_result
+      self._garbage_collect_exports(export_path)
+      return result
+    else:
+      tf.logging.info('Ambassador is keeping the current best model ({} instead of {}).'.format(self._best_eval_result, eval_result))
 
 def _prepare_groundtruth_for_eval(detection_model, class_agnostic,
                                   max_number_of_boxes):
@@ -881,8 +891,7 @@ def create_train_and_eval_specs(train_input_fn,
       exporter_name = final_exporter_name
     else:
       exporter_name = '{}_{}'.format(final_exporter_name, eval_spec_name)
-    exporter = tf.estimator.FinalExporter(
-        name=exporter_name, serving_input_receiver_fn=predict_input_fn)
+    exporter = BestExporter()
     eval_specs.append(
         tf.estimator.EvalSpec(
             name=eval_spec_name,
